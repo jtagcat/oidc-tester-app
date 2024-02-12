@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -32,6 +33,36 @@ var (
 	acURLs    = make(map[string]*url.URL)
 )
 
+const ENV_PREFIX = "TESTER_"
+
+func env(key, fallback string) string {
+	if val, ok := os.LookupEnv(ENV_PREFIX + key); ok {
+		return val
+	}
+
+	return fallback
+}
+
+func envInt(key string, fallback int) int {
+	if valStr, ok := os.LookupEnv(ENV_PREFIX + key); ok {
+		val, err := strconv.Atoi(valStr)
+		if err == nil {
+			return val
+		}
+	}
+
+	return fallback
+}
+
+func dumbNotEmpty(cmd *cobra.Command, key string) error {
+	val, err := cmd.Flags().GetString(key)
+	if err == nil && val != "" {
+		return nil
+	}
+
+	return cmd.MarkFlagRequired(key)
+}
+
 func main() {
 	log.Logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger().Level(zerolog.DebugLevel)
 
@@ -41,20 +72,20 @@ func main() {
 
 	rootCmd := &cobra.Command{Use: "oidc-tester-app", RunE: root}
 
-	rootCmd.Flags().StringVar(&options.Host, "host", "0.0.0.0", "Specifies the tcp host to listen on")
-	rootCmd.Flags().IntVar(&options.Port, "port", 8080, "Specifies the port to listen on")
-	rootCmd.Flags().StringVar(&options.PublicURL, "public-url", "http://localhost:8080/", "Specifies the root URL to generate the redirect URI")
-	rootCmd.Flags().StringVar(&options.ClientID, "id", "", "Specifies the OpenID Connect Client ID")
-	rootCmd.Flags().StringVarP(&options.ClientSecret, "secret", "s", "", "Specifies the OpenID Connect Client Secret")
-	rootCmd.Flags().StringVarP(&options.Issuer, "issuer", "i", "", "Specifies the URL for the OpenID Connect OP")
-	rootCmd.Flags().StringVar(&options.Scopes, "scopes", "openid,profile,email,groups", "Specifies the OpenID Connect scopes to request")
-	rootCmd.Flags().StringVar(&options.CookieName, "cookie-name", "oidc-client", "Specifies the storage cookie name to use")
+	rootCmd.Flags().StringVar(&options.Host, "host", env("HOST", "0.0.0.0"), "Specifies the tcp host to listen on")
+	rootCmd.Flags().IntVar(&options.Port, "port", envInt("PORT", 8080), "Specifies the port to listen on")
+	rootCmd.Flags().StringVar(&options.PublicURL, "public-url", env("PUBLIC_URL", "http://localhost:8080/"), "Specifies the root URL to generate the redirect URI")
+	rootCmd.Flags().StringVar(&options.ClientID, "id", env("CLIENT_ID", ""), "Specifies the OpenID Connect Client ID")
+	rootCmd.Flags().StringVarP(&options.ClientSecret, "secret", "s", env("CLIENT_SECRET", ""), "Specifies the OpenID Connect Client Secret")
+	rootCmd.Flags().StringVarP(&options.Issuer, "issuer", "i", env("ISSUER", ""), "Specifies the URL for the OpenID Connect OP")
+	rootCmd.Flags().StringVar(&options.Scopes, "scopes", env("SCOPES", "openid,profile,email,groups"), "Specifies the OpenID Connect scopes to request")
+	rootCmd.Flags().StringVar(&options.CookieName, "cookie-name", env("COOKIE_NAME", "oidc-client"), "Specifies the storage cookie name to use")
 	rootCmd.Flags().StringSliceVar(&options.Filters, "filters", []string{}, "If specified filters the specified text from html output (not json) out of the email addresses, display names, audience, etc")
 	rootCmd.Flags().StringSliceVar(&options.GroupsFilter, "groups-filter", []string{}, "If specified only shows the groups in this list")
 
-	_ = rootCmd.MarkFlagRequired("id")
-	_ = rootCmd.MarkFlagRequired("secret")
-	_ = rootCmd.MarkFlagRequired("issuer")
+	_ = dumbNotEmpty(rootCmd, "id")
+	_ = dumbNotEmpty(rootCmd, "secret")
+	_ = dumbNotEmpty(rootCmd, "issuer")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Logger.Fatal().Err(err).Msg("error in root process")
